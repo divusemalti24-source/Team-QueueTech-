@@ -80,9 +80,12 @@ interface QueueContextType {
   }) => { success: boolean; token?: QueueToken; error?: string };
 
   callNext: (counterId: string) => Promise<{ success: boolean; token?: QueueToken; error?: string }>;
+  skipAndCallNext: (counterId: string, currentTokenId?: string) => Promise<{ success: boolean; allUnavailable?: boolean; token?: QueueToken; error?: string }>;
   recallToken: (tokenId: string) => { success: boolean; error?: string };
   holdToken: (tokenId: string) => { success: boolean; error?: string };
+  requeueToken: (tokenId: string) => { success: boolean; error?: string };
   resumeHeldToken: (tokenId: string) => { success: boolean; error?: string };
+  startService: (tokenId: string) => { success: boolean; error?: string };
   completeService: (tokenId: string) => { success: boolean; error?: string };
   transferToken: (tokenId: string, targetServiceId: string) => { success: boolean; error?: string };
   markNoShow: (tokenId: string) => { success: boolean; error?: string };
@@ -108,7 +111,7 @@ interface QueueContextType {
   deleteUserAccount: () => void;
 
   // Security, OTP & Feedback
-  requestOtp: (identifier: string) => { success: boolean; waitSeconds?: number; simulatedCode?: string; error?: string };
+  requestOtp: (identifier: string, channel?: 'sms' | 'email') => { success: boolean; waitSeconds?: number; simulatedCode?: string; error?: string };
   verifyOtp: (identifier: string, code: string) => { success: boolean; error?: string; remainingAttempts?: number };
   notifications: AppNotification[];
   markNotificationAsRead: (id: string) => void;
@@ -165,7 +168,7 @@ const DEFAULT_REGISTERED_USER: User = {
   phoneVerified: true,
   authProvider: 'google',
   avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
-  notificationPrefs: { sms: true, whatsapp: true, email: true, inApp: true },
+  notificationPrefs: { sms: true, email: true, inApp: true },
   sessions: [
     {
       id: 'sess-1',
@@ -401,7 +404,7 @@ export const QueueProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     title: string,
     message: string,
     tokenNumber: string,
-    channel: 'IN_APP' | 'SMS' | 'WHATSAPP' = 'IN_APP'
+    channel: 'IN_APP' | 'SMS' | 'EMAIL' = 'IN_APP'
   ) => {
     const notif: AppNotification = {
       id: `notif-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
@@ -664,8 +667,11 @@ export const QueueProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   // ----------------------------------------------------
   // OTP RATE-LIMITING & VERIFICATION ENGINE
   // ----------------------------------------------------
-  const requestOtp = (identifier: string): { success: boolean; waitSeconds?: number; simulatedCode?: string; error?: string } => {
+  const requestOtp = (identifier: string, channel: 'sms' | 'email' = 'sms'): { success: boolean; waitSeconds?: number; simulatedCode?: string; error?: string } => {
     const cleanId = identifier.trim();
+    if (!cleanId) {
+      return { success: false, error: 'Please enter a valid mobile number or email address.' };
+    }
     const rateCheck = rateLimiter.canRequestOtp(cleanId);
 
     if (!rateCheck.allowed) {
@@ -679,7 +685,11 @@ export const QueueProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
     // In demo mode, generate deterministic 6-digit code for review
     const simulatedCode = '742918';
-    addAuditLog('OTP Sent to Contact', undefined, `Masked: ${cleanId.replace(/(\d{3})\d{4}(\d{3})/, '$1****$2')}`);
+    const masked = cleanId.includes('@')
+      ? cleanId.replace(/(.{2})(.*)(@.*)/, '$1***$3')
+      : cleanId.replace(/(\d{3})\d{4}(\d{3})/, '$1****$2');
+
+    addAuditLog(`OTP Sent via ${channel.toUpperCase()}`, undefined, `Masked: ${masked}`);
     return { success: true, simulatedCode };
   };
 
@@ -687,7 +697,7 @@ export const QueueProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     const cleanId = identifier.trim();
     const cleanCode = code.trim();
 
-    // Valid demo code or any 6-digit matching
+    // Valid demo code or standard simulated OTP
     if (cleanCode === '742918' || cleanCode === '123456') {
       rateLimiter.clearOtpState(cleanId);
       addAuditLog('OTP Verified Successfully', undefined, `Target: ${cleanId}`);
@@ -700,7 +710,7 @@ export const QueueProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       return {
         success: false,
         remainingAttempts: 0,
-        error: 'Too many failed OTP attempts. This number has been temporarily locked for 5 minutes.'
+        error: 'Too many failed OTP attempts. This contact has been temporarily locked for 5 minutes.'
       };
     }
 
@@ -757,6 +767,24 @@ export const QueueProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       targetService = targetDept.services[0];
     }
 
+    // 3. Duplicate Active Token Check for this user / contact in this specific service
+    const existingActiveToken = tokens.find(t =>
+      t.orgId === currentOrg.id &&
+      t.serviceId === targetService.id &&
+      (t.status === 'WAITING' || t.status === 'CALLED' || t.status === 'IN_SERVICE' || t.status === 'ON_HOLD') &&
+      (
+        (citizenPhone && t.citizenPhone === citizenPhone) ||
+        (citizenEmail && t.citizenEmail === citizenEmail) ||
+        (!currentUser.isGuest && t.userId === currentUser.id)
+      )
+    );
+
+    if (existingActiveToken) {
+      setActiveCitizenTokenId(existingActiveToken.id);
+      showToast(`You already have an active pass (${existingActiveToken.tokenNumber}) for ${existingActiveToken.serviceName}.`, 'info');
+      return { success: true, token: existingActiveToken };
+    }
+
     // Count existing tokens
     const existingForService = tokens.filter(
       t => t.orgId === currentOrg.id && t.serviceId === targetService.id && (t.status === 'WAITING' || t.status === 'IN_SERVICE' || t.status === 'CALLED')
@@ -810,7 +838,7 @@ export const QueueProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     setActiveCitizenTokenId(newToken.id);
 
     // Activity & Notifications
-    const msg = `Token ${newToken.tokenNumber} confirmed for ${newToken.serviceName}. Ref: ${secureTrackingRef}. Est wait: ~${estimatedWaitMinutes} mins.`;
+    const msg = `Token ${newToken.tokenNumber} confirmed for ${newToken.serviceName}. Ref: ${secureTrackingRef}.`;
     addNotification('Token Generated', msg, newToken.tokenNumber);
     addAuditLog(`Generated ${type} Token ${newToken.tokenNumber}`, newToken.id, `Service: ${newToken.serviceName}, Ref: ${secureTrackingRef}`);
     addUserActivity('TOKEN_CREATED', `Booked Token ${newToken.tokenNumber}`, `Service: ${newToken.serviceName} at ${currentOrg.name}`);
@@ -877,6 +905,7 @@ export const QueueProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             counterNumber: counter.number,
             staffName: counter.currentStaffName || currentUser.name,
             calledAt: now,
+            isTemporarilySkipped: false,
             estimatedWaitMinutes: 0,
             concurrencyVersion: (t.concurrencyVersion || 1) + 1
           };
@@ -903,6 +932,193 @@ export const QueueProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     } finally {
       concurrencyMutex.releaseLock(lockKey);
     }
+  };
+
+  // Smart Skip & Re-Queue Method
+  const skipAndCallNext = async (counterId: string, currentTokenId?: string): Promise<{ success: boolean; allUnavailable?: boolean; token?: QueueToken; error?: string }> => {
+    const auth = SecurityEnforcer.authorizePermission(currentUser, 'QUEUE_CALL_NEXT', currentOrg.id);
+    if (!auth.allowed) {
+      showToast(auth.reason || 'Access Denied: Staff authorization required.', 'error');
+      addAuditLog('UNAUTHORIZED Smart Skip Attempt', currentTokenId, auth.reason, 'SECURITY_BLOCKED');
+      return { success: false, error: auth.reason };
+    }
+
+    const lockKey = `call_next_${currentOrg.id}_${counterId}`;
+    const acquired = await concurrencyMutex.acquireLock(lockKey);
+    if (!acquired) {
+      showToast('Concurrent request detected. Please wait.', 'warning');
+      return { success: false, error: 'Counter is currently busy processing another dispatch.' };
+    }
+
+    try {
+      const counter = currentOrg.counters.find(c => c.id === counterId);
+      if (!counter) return { success: false, error: 'Counter not found.' };
+
+      const now = new Date().toISOString();
+      let targetCurrentTokenId = currentTokenId;
+
+      if (!targetCurrentTokenId) {
+        const activeAtCounter = tokens.find(t => t.orgId === currentOrg.id && t.counterId === counterId && (t.status === 'CALLED' || t.status === 'IN_SERVICE'));
+        if (activeAtCounter) {
+          targetCurrentTokenId = activeAtCounter.id;
+        }
+      }
+
+      let skippedTokenNumber = '';
+      if (targetCurrentTokenId) {
+        const tokenToSkip = tokens.find(t => t.id === targetCurrentTokenId);
+        if (tokenToSkip) {
+          skippedTokenNumber = tokenToSkip.tokenNumber;
+          setTokens(prev => prev.map(t => {
+            if (t.id === targetCurrentTokenId) {
+              return {
+                ...t,
+                status: 'ON_HOLD',
+                isTemporarilySkipped: true,
+                skipCount: (t.skipCount || 0) + 1,
+                lastSkippedAt: now,
+                holdExpiresAt: new Date(Date.now() + (currentOrg.rules.graceHoldMinutes || 10) * 60 * 1000).toISOString()
+              };
+            }
+            return t;
+          }));
+
+          addNotification(
+            'Token Temporarily Skipped',
+            `Token ${tokenToSkip.tokenNumber} was temporarily skipped due to response timeout. It remains active on hold and can be recalled anytime.`,
+            tokenToSkip.tokenNumber
+          );
+          addAuditLog(`Smart Skip: Token ${tokenToSkip.tokenNumber} placed on Hold (Re-Queue)`, tokenToSkip.id, `Counter: ${counter.number}, Staff: ${currentUser.name}`);
+        }
+      }
+
+      const eligibleTokens = tokens.filter(t => 
+        t.orgId === currentOrg.id &&
+        t.status === 'WAITING' &&
+        (counter.isFlexCounter || counter.serviceIds.includes(t.serviceId))
+      );
+
+      if (eligibleTokens.length === 0) {
+        showToast(
+          skippedTokenNumber 
+            ? `Token ${skippedTokenNumber} moved to hold. No available users found in line.` 
+            : 'No available users found. Waiting for queue response.',
+          'info'
+        );
+        return { success: true, allUnavailable: true };
+      }
+
+      const priorityWeights = currentOrg.rules.priorityWeights;
+      const sorted = [...eligibleTokens].sort((a, b) => {
+        const weightA = priorityWeights[a.priority] || 10;
+        const weightB = priorityWeights[b.priority] || 10;
+        if (weightB !== weightA) return weightB - weightA;
+        return new Date(a.issuedAt).getTime() - new Date(b.issuedAt).getTime();
+      });
+
+      const nextToken = sorted[0];
+
+      setTokens(prev => prev.map(t => {
+        if (t.id === nextToken.id) {
+          return {
+            ...t,
+            status: 'CALLED',
+            counterId: counter.id,
+            counterNumber: counter.number,
+            staffName: counter.currentStaffName || currentUser.name,
+            calledAt: now,
+            isTemporarilySkipped: false,
+            estimatedWaitMinutes: 0,
+            concurrencyVersion: (t.concurrencyVersion || 1) + 1
+          };
+        }
+        return t;
+      }));
+
+      const voiceAnnouncement = language === 'hi'
+        ? `टोकन संख्या ${nextToken.tokenNumber}, कृपया काउंटर ${counter.number} पर आएं।`
+        : `Attention please. Token number ${nextToken.tokenNumber.split('').join(' ')}, please proceed to Counter ${counter.number}.`;
+
+      playVoiceChime(voiceAnnouncement);
+
+      addNotification(
+        'Now Calling!',
+        `Token ${nextToken.tokenNumber} called at Counter ${counter.number}. Please proceed immediately.`,
+        nextToken.tokenNumber
+      );
+
+      addAuditLog(`Counter ${counter.number} called Token ${nextToken.tokenNumber} (via Smart Skip)`, nextToken.id, `Operator: ${currentUser.name}`);
+      showToast(
+        skippedTokenNumber 
+          ? `Skipped ${skippedTokenNumber} ➔ Now Calling ${nextToken.tokenNumber} at Counter ${counter.number}` 
+          : `Calling Token ${nextToken.tokenNumber} at Counter ${counter.number}`, 
+        'success'
+      );
+
+      return { success: true, token: nextToken };
+    } finally {
+      concurrencyMutex.releaseLock(lockKey);
+    }
+  };
+
+  const startService = (tokenId: string): { success: boolean; error?: string } => {
+    const auth = SecurityEnforcer.authorizePermission(currentUser, 'QUEUE_COMPLETE', currentOrg.id);
+    if (!auth.allowed) {
+      showToast(auth.reason || 'Unauthorized.', 'error');
+      addAuditLog('UNAUTHORIZED Start Service Attempt', tokenId, auth.reason, 'SECURITY_BLOCKED');
+      return { success: false, error: auth.reason };
+    }
+
+    const token = tokens.find(t => t.id === tokenId && t.orgId === currentOrg.id);
+    if (!token) return { success: false, error: 'Token not found.' };
+
+    const now = new Date().toISOString();
+    setTokens(prev => prev.map(t => {
+      if (t.id === tokenId) {
+        return {
+          ...t,
+          status: 'IN_SERVICE',
+          serviceStartedAt: now,
+          isTemporarilySkipped: false
+        };
+      }
+      return t;
+    }));
+
+    addAuditLog(`Started consultation for Token ${token.tokenNumber}`, token.id, `Counter: ${token.counterNumber || '1'}, Staff: ${currentUser.name}`);
+    showToast(`Citizen present: Consultation started for Token ${token.tokenNumber}`, 'success');
+    return { success: true };
+  };
+
+  const requeueToken = (tokenId: string): { success: boolean; error?: string } => {
+    const auth = SecurityEnforcer.authorizePermission(currentUser, 'QUEUE_HOLD', currentOrg.id);
+    if (!auth.allowed) {
+      showToast(auth.reason || 'Unauthorized.', 'error');
+      addAuditLog('UNAUTHORIZED Re-Queue Attempt', tokenId, auth.reason, 'SECURITY_BLOCKED');
+      return { success: false, error: auth.reason };
+    }
+
+    const token = tokens.find(t => t.id === tokenId && t.orgId === currentOrg.id);
+    if (!token) return { success: false, error: 'Token not found.' };
+
+    setTokens(prev => prev.map(t => {
+      if (t.id === tokenId) {
+        return {
+          ...t,
+          status: 'WAITING',
+          isTemporarilySkipped: false,
+          holdExpiresAt: undefined,
+          counterId: undefined,
+          counterNumber: undefined
+        };
+      }
+      return t;
+    }));
+
+    addNotification('Token Returned to Line', `Token ${token.tokenNumber} has been re-queued to active waiting status.`, token.tokenNumber);
+    addAuditLog(`Re-queued Token ${token.tokenNumber} back to active line`, token.id, `Staff: ${currentUser.name}`);
+    showToast(`Token ${token.tokenNumber} returned to active waiting queue.`, 'info');
+    return { success: true };
   };
 
   const recallToken = (tokenId: string): { success: boolean; error?: string } => {
@@ -1419,9 +1635,12 @@ export const QueueProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
         joinQueue,
         callNext,
+        skipAndCallNext,
         recallToken,
         holdToken,
+        requeueToken,
         resumeHeldToken,
+        startService,
         completeService,
         transferToken,
         markNoShow,

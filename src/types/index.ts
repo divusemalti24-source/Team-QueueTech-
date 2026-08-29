@@ -145,7 +145,6 @@ export interface User {
   sessions?: UserSession[];
   notificationPrefs?: {
     sms: boolean;
-    whatsapp: boolean;
     email: boolean;
     inApp: boolean;
   };
@@ -217,6 +216,9 @@ export interface QueueToken {
   completedAt?: string;
   estimatedWaitMinutes: number;
   holdExpiresAt?: string;
+  isTemporarilySkipped?: boolean;
+  skipCount?: number;
+  lastSkippedAt?: string;
   transferredFrom?: string;
   linkedJourney?: {
     currentStep: number;
@@ -253,6 +255,8 @@ export interface Organization {
     enableVoiceAnnouncements: boolean;
     maxActiveTokensPerUser: number;
     tokenCooldownMinutes: number;
+    responseWindowSeconds?: number;
+    smartSkipEnabled?: boolean;
     showQueuePosition?: boolean;
     showPeopleAhead?: boolean;
     showEstimatedTime?: boolean; // OFF by default
@@ -268,7 +272,6 @@ export interface Organization {
   };
   integrations: {
     sms: { enabled: boolean; provider: string; status: 'configured' | 'unconfigured' };
-    whatsapp: { enabled: boolean; provider: string; status: 'configured' | 'unconfigured' };
     email: { enabled: boolean; provider: string; status: 'configured' | 'unconfigured' };
     thermalPrinter: { enabled: boolean; status: 'configured' | 'unconfigured' };
     webhooks: { enabled: boolean; status: 'configured' | 'unconfigured' };
@@ -280,7 +283,7 @@ export interface AppNotification {
   tokenNumber: string;
   title: string;
   message: string;
-  channel: 'IN_APP' | 'SMS' | 'WHATSAPP';
+  channel: 'IN_APP' | 'SMS' | 'EMAIL';
   timestamp: string;
   read: boolean;
   status: 'DELIVERED' | 'CONFIG_REQUIRED';

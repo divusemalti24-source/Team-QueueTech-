@@ -66,7 +66,6 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onOpenAuthModal })
   const [editEmail, setEditEmail] = useState(currentUser.email || '');
   const [editPhone, setEditPhone] = useState(currentUser.phone || '');
   const [editSms, setEditSms] = useState(currentUser.notificationPrefs?.sms ?? true);
-  const [editWhatsapp, setEditWhatsapp] = useState(currentUser.notificationPrefs?.whatsapp ?? true);
   const [editEmailNotif, setEditEmailNotif] = useState(currentUser.notificationPrefs?.email ?? true);
 
   // Link Guest Token State
@@ -117,7 +116,6 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onOpenAuthModal })
           phone: editPhone,
           notificationPrefs: {
             sms: editSms,
-            whatsapp: editWhatsapp,
             email: editEmailNotif,
             inApp: true
           }
@@ -128,7 +126,6 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onOpenAuthModal })
         name: editName,
         notificationPrefs: {
           sms: editSms,
-          whatsapp: editWhatsapp,
           email: editEmailNotif,
           inApp: true
         }
@@ -788,21 +785,11 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ onOpenAuthModal })
                 <span className="text-xs font-bold text-slate-900 dark:text-white block">Dispatch Notification Channels</span>
 
                 <label className="flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 cursor-pointer">
-                  <span className="text-xs text-slate-700 dark:text-slate-300">SMS Alerts on Calling / Hold</span>
+                  <span className="text-xs text-slate-700 dark:text-slate-300">SMS Turn Notifications</span>
                   <input
                     type="checkbox"
                     checked={editSms}
                     onChange={e => setEditSms(e.target.checked)}
-                    className="w-4 h-4 rounded text-sky-600 focus:ring-sky-500"
-                  />
-                </label>
-
-                <label className="flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 cursor-pointer">
-                  <span className="text-xs text-slate-700 dark:text-slate-300">WhatsApp Staggered ETA Alerts</span>
-                  <input
-                    type="checkbox"
-                    checked={editWhatsapp}
-                    onChange={e => setEditWhatsapp(e.target.checked)}
                     className="w-4 h-4 rounded text-sky-600 focus:ring-sky-500"
                   />
                 </label>

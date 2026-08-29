@@ -43,7 +43,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
   const [authMethod, setAuthMethod] = useState<'citizen_auth' | 'staff_invite' | 'demo_roles'>('citizen_auth');
   
   // Citizen Auth State
-  const [citizenMode, setCitizenMode] = useState<'google' | 'otp' | 'email'>('google');
+  const [citizenMode, setCitizenMode] = useState<'sms' | 'email'>('sms');
   const [mobileInput, setMobileInput] = useState('9811223344');
   const [emailInput, setEmailInput] = useState('pooja.sundaram@example.com');
   const [nameInput, setNameInput] = useState('Pooja Sundaram');
@@ -74,12 +74,18 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
   const handleRequestOtp = (e: React.FormEvent) => {
     e.preventDefault();
     setOtpError('');
-    if (mobileInput.length < 10) {
+
+    const targetContact = citizenMode === 'sms' ? mobileInput : emailInput;
+    if (citizenMode === 'sms' && mobileInput.length < 10) {
       setOtpError('Please enter a valid 10-digit mobile number.');
       return;
     }
+    if (citizenMode === 'email' && (!emailInput.includes('@') || !emailInput.includes('.'))) {
+      setOtpError('Please enter a valid email address.');
+      return;
+    }
 
-    const res = requestOtp(mobileInput);
+    const res = requestOtp(targetContact, citizenMode);
     if (!res.success) {
       setOtpError(res.error || 'Rate limited');
       setOtpCooldown(res.waitSeconds);
@@ -94,7 +100,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
   const handleVerifyOtp = (e: React.FormEvent) => {
     e.preventDefault();
     setOtpError('');
-    const res = verifyOtp(mobileInput, otpCode);
+    const targetContact = citizenMode === 'sms' ? mobileInput : emailInput;
+    const res = verifyOtp(targetContact, otpCode);
 
     if (!res.success) {
       setOtpError(res.error || 'Invalid OTP');
@@ -102,9 +109,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     }
 
     loginAsRegisteredUser({
-      name: nameInput || `Citizen (${mobileInput.slice(-4)})`,
-      phone: mobileInput,
-      authProvider: 'mobile_otp'
+      name: nameInput || `Citizen (${targetContact.slice(-4)})`,
+      phone: citizenMode === 'sms' ? mobileInput : undefined,
+      email: citizenMode === 'email' ? emailInput : undefined,
+      authProvider: citizenMode === 'sms' ? 'mobile_otp' : 'email_otp'
     });
     onClose();
   };
@@ -246,11 +254,39 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
 
             <div className="relative flex py-1 items-center">
               <div className="flex-grow border-t border-slate-200 dark:border-slate-800"></div>
-              <span className="flex-shrink mx-4 text-[10px] font-bold uppercase tracking-wider text-slate-400">Or Mobile OTP</span>
+              <span className="flex-shrink mx-4 text-[10px] font-bold uppercase tracking-wider text-slate-400">Or Instant OTP Verification</span>
               <div className="flex-grow border-t border-slate-200 dark:border-slate-800"></div>
             </div>
 
-            {/* Mobile OTP Form */}
+            {/* Channel Selector */}
+            <div className="grid grid-cols-2 gap-1 p-1 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs font-bold">
+              <button
+                type="button"
+                onClick={() => { setCitizenMode('sms'); setOtpSent(false); }}
+                className={`py-1.5 rounded-lg transition-colors cursor-pointer flex items-center justify-center gap-1.5 ${
+                  citizenMode === 'sms'
+                    ? 'bg-white dark:bg-slate-900 text-sky-600 dark:text-sky-400 shadow-xs'
+                    : 'text-slate-500'
+                }`}
+              >
+                <Smartphone className="w-3.5 h-3.5" />
+                <span>Mobile SMS</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => { setCitizenMode('email'); setOtpSent(false); }}
+                className={`py-1.5 rounded-lg transition-colors cursor-pointer flex items-center justify-center gap-1.5 ${
+                  citizenMode === 'email'
+                    ? 'bg-white dark:bg-slate-900 text-sky-600 dark:text-sky-400 shadow-xs'
+                    : 'text-slate-500'
+                }`}
+              >
+                <Mail className="w-3.5 h-3.5" />
+                <span>Email OTP</span>
+              </button>
+            </div>
+
+            {/* OTP Form */}
             {!otpSent ? (
               <form onSubmit={handleRequestOtp} className="space-y-3">
                 <div>
@@ -266,24 +302,39 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                   />
                 </div>
 
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    10-Digit Mobile Number
-                  </label>
-                  <div className="flex gap-2">
-                    <div className="px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-mono font-bold text-slate-600 dark:text-slate-400">
-                      +91
+                {citizenMode === 'sms' ? (
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      10-Digit Mobile Number
+                    </label>
+                    <div className="flex gap-2">
+                      <div className="px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-mono font-bold text-slate-600 dark:text-slate-400">
+                        +91
+                      </div>
+                      <input
+                        type="tel"
+                        value={mobileInput}
+                        onChange={e => setMobileInput(e.target.value)}
+                        placeholder="9876543210"
+                        maxLength={10}
+                        className="flex-1 px-4 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-sky-500"
+                      />
                     </div>
+                  </div>
+                ) : (
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      Email Address
+                    </label>
                     <input
-                      type="tel"
-                      value={mobileInput}
-                      onChange={e => setMobileInput(e.target.value)}
-                      placeholder="9876543210"
-                      maxLength={10}
-                      className="flex-1 px-4 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-sky-500"
+                      type="email"
+                      value={emailInput}
+                      onChange={e => setEmailInput(e.target.value)}
+                      placeholder="citizen@example.com"
+                      className="w-full px-4 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-sky-500"
                     />
                   </div>
-                </div>
+                )}
 
                 {otpError && (
                   <p className="text-xs text-rose-500 font-bold">{otpError}</p>
@@ -293,7 +344,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                   type="submit"
                   className="w-full py-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs shadow-md transition-colors cursor-pointer"
                 >
-                  Send Verification OTP
+                  Send Verification OTP via {citizenMode === 'sms' ? 'SMS' : 'Email'}
                 </button>
               </form>
             ) : (

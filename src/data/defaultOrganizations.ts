@@ -168,6 +168,8 @@ export const DEFAULT_ORGANIZATIONS: Organization[] = [
       showEstimatedTime: false,
       showCounter: true,
       showServiceStatus: true,
+      responseWindowSeconds: 30,
+      smartSkipEnabled: true,
       priorityWeights: {
         emergency: 100,
         differently_abled: 50,
@@ -177,7 +179,6 @@ export const DEFAULT_ORGANIZATIONS: Organization[] = [
     },
     integrations: {
       sms: { enabled: true, provider: 'Twilio / NIC SMS Gateway', status: 'unconfigured' },
-      whatsapp: { enabled: true, provider: 'Meta Cloud API', status: 'unconfigured' },
       email: { enabled: true, provider: 'SMTP / SendGrid', status: 'unconfigured' },
       thermalPrinter: { enabled: true, status: 'configured' },
       webhooks: { enabled: false, status: 'unconfigured' }
@@ -297,6 +298,8 @@ export const DEFAULT_ORGANIZATIONS: Organization[] = [
       showEstimatedTime: false,
       showCounter: true,
       showServiceStatus: true,
+      responseWindowSeconds: 30,
+      smartSkipEnabled: true,
       priorityWeights: {
         emergency: 100,
         differently_abled: 50,
@@ -306,7 +309,6 @@ export const DEFAULT_ORGANIZATIONS: Organization[] = [
     },
     integrations: {
       sms: { enabled: true, provider: 'NIC Government SMS', status: 'unconfigured' },
-      whatsapp: { enabled: false, provider: '', status: 'unconfigured' },
       email: { enabled: true, provider: 'GovMail SMTP', status: 'unconfigured' },
       thermalPrinter: { enabled: true, status: 'configured' },
       webhooks: { enabled: false, status: 'unconfigured' }
@@ -426,6 +428,8 @@ export const DEFAULT_ORGANIZATIONS: Organization[] = [
       showEstimatedTime: false,
       showCounter: true,
       showServiceStatus: true,
+      responseWindowSeconds: 30,
+      smartSkipEnabled: true,
       priorityWeights: {
         emergency: 100,
         differently_abled: 60,
@@ -435,7 +439,6 @@ export const DEFAULT_ORGANIZATIONS: Organization[] = [
     },
     integrations: {
       sms: { enabled: true, provider: 'Bank Secured SMS Gateway', status: 'unconfigured' },
-      whatsapp: { enabled: true, provider: 'Bank Bot', status: 'unconfigured' },
       email: { enabled: true, provider: 'Bank SMTP', status: 'unconfigured' },
       thermalPrinter: { enabled: true, status: 'configured' },
       webhooks: { enabled: false, status: 'unconfigured' }
@@ -531,6 +534,8 @@ export const DEFAULT_ORGANIZATIONS: Organization[] = [
       showEstimatedTime: false,
       showCounter: true,
       showServiceStatus: true,
+      responseWindowSeconds: 30,
+      smartSkipEnabled: true,
       priorityWeights: {
         emergency: 100,
         differently_abled: 50,
@@ -540,7 +545,6 @@ export const DEFAULT_ORGANIZATIONS: Organization[] = [
     },
     integrations: {
       sms: { enabled: true, provider: 'Campus SMS Service', status: 'unconfigured' },
-      whatsapp: { enabled: false, provider: '', status: 'unconfigured' },
       email: { enabled: true, provider: 'University Mailer', status: 'unconfigured' },
       thermalPrinter: { enabled: true, status: 'configured' },
       webhooks: { enabled: false, status: 'unconfigured' }

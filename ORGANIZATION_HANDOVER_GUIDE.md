@@ -8,7 +8,7 @@
 ## 🌟 Executive Summary for Decision Makers & Hackathon Juries
 
 QueueLess is an **all-in-one, zero-dependency smart queue operating system** that solves the twin crises of public infrastructure congestion:
-1. **Indoor Overcrowding:** Eliminated via QR Entrance pods and Remote WhatsApp/SMS call-ahead telemetry (citizens wait comfortably in gardens, parking, or cafeterias).
+1. **Indoor Overcrowding:** Eliminated via QR Entrance pods and Remote SMS/Email call-ahead telemetry (citizens wait comfortably in gardens, parking, or cafeterias).
 2. **Counter Bottlenecks:** Eliminated via 1-click **Dynamic Flex Surge Load Balancing** (e.g., converting an underutilized admin counter into an OPD Flex counter in 2 seconds, cutting peak waiting times by 50%).
 
 ---
@@ -68,9 +68,9 @@ QueueLess comes pre-configured with 4 standard essential public service desks:
    - Automatically detects queue congestion when wait time exceeds 15 minutes.
    - 1-Click re-allocates Counter 4 (Admin) as **Counter 1B (Flex OPD)** to instantly halve OPD wait queues.
 
-2. **Remote WhatsApp / SMS Staggered Dispatch (Zero-Lobby-Crowding):**
-   - Calculates dynamic arrival time windows (e.g. *"Arrive in 12–18 mins • Lobby Density: 24%"*).
-   - Citizens wait safely in open-air zones or cafeterias, receiving a push alert when they are **2 tokens away**.
+2. **Remote SMS / Email Staggered Dispatch (Zero-Lobby-Crowding):**
+   - Calculates dynamic arrival time windows and live turn status updates.
+   - Citizens wait safely in open-air zones or cafeterias, receiving an alert when they are approaching the counter.
 
 3. **Entrance QR Scanner Pod (Physical Arrival Verification):**
    - Mounted at facility gates to scan citizen QR tickets (phone screen or paper slip).
@@ -80,9 +80,9 @@ QueueLess comes pre-configured with 4 standard essential public service desks:
    - One unified token pass links `Doctor Consultation ➔ Diagnostic Lab ➔ Pharmacy Dispensing`.
    - Zero re-queuing or redundant registration paperwork across departments.
 
-5. **5-Minute Grace Hold Pool with Fast-Track Restore:**
-   - If a citizen is temporarily away when called, they are placed in Grace Hold rather than being canceled.
-   - Staff can restore them to position #2 with 1 click when they return.
+5. **Smart Skip & Re-Queue with Fast-Track Restore:**
+   - If a citizen is temporarily away when called, the staff can use Smart Skip to progress the queue without canceling the token.
+   - The token remains active, retains its token number, and can be recalled or returned to the waiting line at any time.
 
 6. **Automated Multi-lingual Voice Synthesizer:**
    - Automatic synthesized chime and vocal announcements in English and Hindi (e.g. *"Attention Token Q-101 please proceed to Counter 1"*).

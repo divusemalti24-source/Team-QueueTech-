@@ -109,7 +109,6 @@ export const OnboardOrgModal: React.FC<OnboardOrgModalProps> = ({ isOpen, onClos
       },
       integrations: {
         sms: { enabled: true, provider: 'Standard SMS API', status: 'unconfigured' },
-        whatsapp: { enabled: false, provider: '', status: 'unconfigured' },
         email: { enabled: true, provider: 'Institutional SMTP', status: 'unconfigured' },
         thermalPrinter: { enabled: true, status: 'configured' },
         webhooks: { enabled: false, status: 'unconfigured' }

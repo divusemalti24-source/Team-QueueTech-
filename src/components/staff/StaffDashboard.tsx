@@ -15,7 +15,11 @@ import {
   Sparkles,
   Smartphone,
   Printer,
-  AlertCircle
+  AlertCircle,
+  FastForward,
+  RotateCcw,
+  UserCheck,
+  Timer
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
@@ -24,12 +28,16 @@ export const StaffDashboard: React.FC = () => {
     currentOrg,
     tokens,
     callNext,
+    skipAndCallNext,
+    startService,
+    requeueToken,
     completeService,
     holdToken,
     markNoShow,
     transferToken,
     playVoiceChime,
-    showToast
+    showToast,
+    updateOrganization
   } = useQueue();
 
   const [selectedCounterId, setSelectedCounterId] = useState<string>(
@@ -39,12 +47,14 @@ export const StaffDashboard: React.FC = () => {
   const [targetDeptId, setTargetDeptId] = useState<string>('');
   const [targetServiceId, setTargetServiceId] = useState<string>('');
   const [serviceTimerSeconds, setServiceTimerSeconds] = useState(0);
+  const [responseTimerSeconds, setResponseTimerSeconds] = useState(0);
 
   const selectedCounter = currentOrg.counters.find(c => c.id === selectedCounterId) || currentOrg.counters[0];
 
   // Find token currently CALLED or IN_SERVICE at this counter
   const currentActiveToken = tokens.find(
-    t => t.assignedCounterId === selectedCounter?.id && (t.status === 'CALLED' || t.status === 'IN_SERVICE')
+    t => (t.counterId === selectedCounter?.id || t.assignedCounterId === selectedCounter?.id) &&
+         (t.status === 'CALLED' || t.status === 'IN_SERVICE')
   );
 
   // Eligible waiting tokens for this counter
@@ -54,16 +64,19 @@ export const StaffDashboard: React.FC = () => {
     return selectedCounter?.serviceIds.includes(t.serviceId);
   });
 
-  // Held tokens
+  // Held and Temporarily Skipped tokens
   const heldTokens = tokens.filter(t => t.status === 'ON_HOLD');
 
   // Completed today
   const completedToday = tokens.filter(t => t.status === 'COMPLETED');
 
+  // Configured response window for citizen arrival
+  const responseWindowSeconds = currentOrg.rules.responseWindowSeconds || 30;
+
   // Elapsed timer for active consultation
   useEffect(() => {
     let interval: any = null;
-    if (currentActiveToken) {
+    if (currentActiveToken && currentActiveToken.status === 'IN_SERVICE') {
       interval = setInterval(() => {
         setServiceTimerSeconds(prev => prev + 1);
       }, 1000);
@@ -71,7 +84,27 @@ export const StaffDashboard: React.FC = () => {
       setServiceTimerSeconds(0);
     }
     return () => clearInterval(interval);
-  }, [currentActiveToken?.id]);
+  }, [currentActiveToken?.id, currentActiveToken?.status]);
+
+  // Response countdown timer for CALLED state
+  useEffect(() => {
+    let interval: any = null;
+    if (currentActiveToken && currentActiveToken.status === 'CALLED') {
+      const calledAtTime = currentActiveToken.calledAt ? new Date(currentActiveToken.calledAt).getTime() : Date.now();
+      const calculateRemaining = () => {
+        const elapsed = Math.floor((Date.now() - calledAtTime) / 1000);
+        return Math.max(0, responseWindowSeconds - elapsed);
+      };
+
+      setResponseTimerSeconds(calculateRemaining());
+      interval = setInterval(() => {
+        setResponseTimerSeconds(calculateRemaining());
+      }, 1000);
+    } else {
+      setResponseTimerSeconds(0);
+    }
+    return () => clearInterval(interval);
+  }, [currentActiveToken?.id, currentActiveToken?.status, currentActiveToken?.calledAt, responseWindowSeconds]);
 
   const formatTimer = (totalSeconds: number) => {
     const mins = Math.floor(totalSeconds / 60);
@@ -79,12 +112,25 @@ export const StaffDashboard: React.FC = () => {
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const handleCallNext = () => {
+  const handleCallNext = async () => {
     if (!selectedCounter) return;
-    const token = callNext(selectedCounter.id);
-    if (token) {
+    const res = await callNext(selectedCounter.id);
+    if (res.success && res.token) {
       confetti({ particleCount: 40, spread: 60, origin: { y: 0.6 } });
     }
+  };
+
+  const handleSmartSkip = async () => {
+    if (!selectedCounter) return;
+    const res = await skipAndCallNext(selectedCounter.id, currentActiveToken?.id);
+    if (res.success && res.token) {
+      confetti({ particleCount: 30, spread: 50, origin: { y: 0.6 } });
+    }
+  };
+
+  const handleStartService = () => {
+    if (!currentActiveToken) return;
+    startService(currentActiveToken.id);
   };
 
   const handleRepeatChime = () => {
@@ -103,8 +149,18 @@ export const StaffDashboard: React.FC = () => {
 
   const handleExecuteTransfer = () => {
     if (!transferModalToken || !targetServiceId || !targetDeptId) return;
-    transferToken(transferModalToken.id, targetDeptId, targetServiceId);
+    transferToken(transferModalToken.id, targetServiceId);
     setTransferModalToken(null);
+  };
+
+  const handleUpdateResponseWindow = (seconds: number) => {
+    updateOrganization(currentOrg.id, {
+      rules: {
+        ...currentOrg.rules,
+        responseWindowSeconds: seconds
+      }
+    });
+    showToast(`Citizen response window updated to ${seconds} seconds`, 'info');
   };
 
   return (
@@ -126,27 +182,44 @@ export const StaffDashboard: React.FC = () => {
               </span>
             </div>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              {currentOrg.name} • Operational Dispatch & Triage
+              {currentOrg.name} • Operational Dispatch & Smart Skip
             </p>
           </div>
         </div>
 
-        {/* Counter Switcher */}
-        <div className="flex items-center gap-2">
-          <label className="text-xs font-bold text-slate-700 dark:text-slate-300 whitespace-nowrap">
-            Operating Counter:
-          </label>
-          <select
-            value={selectedCounterId}
-            onChange={e => setSelectedCounterId(e.target.value)}
-            className="px-3.5 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none"
-          >
-            {currentOrg.counters.map(c => (
-              <option key={c.id} value={c.id}>
-                {c.name} ({c.currentStaffName})
-              </option>
-            ))}
-          </select>
+        {/* Counter & Response Window Switchers */}
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2">
+            <label className="text-xs font-bold text-slate-700 dark:text-slate-300 whitespace-nowrap">
+              Operating Counter:
+            </label>
+            <select
+              value={selectedCounterId}
+              onChange={e => setSelectedCounterId(e.target.value)}
+              className="px-3.5 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none"
+            >
+              {currentOrg.counters.map(c => (
+                <option key={c.id} value={c.id}>
+                  {c.name} ({c.currentStaffName || 'Staff'})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs">
+            <Timer className="w-3.5 h-3.5 text-indigo-500" />
+            <span className="text-[11px] font-bold text-slate-600 dark:text-slate-300">Window:</span>
+            <select
+              value={responseWindowSeconds}
+              onChange={e => handleUpdateResponseWindow(Number(e.target.value))}
+              className="bg-transparent font-mono font-bold text-indigo-600 dark:text-indigo-400 text-xs outline-none cursor-pointer"
+            >
+              <option value={15}>15s</option>
+              <option value={30}>30s</option>
+              <option value={45}>45s</option>
+              <option value={60}>60s</option>
+            </select>
+          </div>
         </div>
       </div>
 
@@ -159,22 +232,44 @@ export const StaffDashboard: React.FC = () => {
             
             <div className="flex items-center justify-between border-b border-slate-800 pb-4">
               <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping"></span>
+                <span className={`w-2.5 h-2.5 rounded-full ${currentActiveToken?.status === 'IN_SERVICE' ? 'bg-emerald-400 animate-ping' : 'bg-amber-400 animate-pulse'}`}></span>
                 <span className="text-xs font-mono uppercase tracking-wider font-bold text-indigo-300">
-                  {selectedCounter?.name} • Active Consultation
+                  {selectedCounter?.name} • {currentActiveToken ? (currentActiveToken.status === 'IN_SERVICE' ? 'Active Consultation' : 'Calling Citizen') : 'Ready For Dispatch'}
                 </span>
               </div>
               
               {currentActiveToken && (
                 <div className="flex items-center gap-2 font-mono text-xs bg-slate-800/80 px-3 py-1 rounded-full border border-slate-700">
                   <Clock className="w-3.5 h-3.5 text-sky-400" />
-                  <span>Session Elapsed: {formatTimer(serviceTimerSeconds)}</span>
+                  <span>
+                    {currentActiveToken.status === 'IN_SERVICE'
+                      ? `Session Elapsed: ${formatTimer(serviceTimerSeconds)}`
+                      : `Response Window: ${responseTimerSeconds}s remaining`}
+                  </span>
                 </div>
               )}
             </div>
 
             {currentActiveToken ? (
               <div className="space-y-6 animate-in fade-in">
+                
+                {/* Calling vs In-Service Banner */}
+                {currentActiveToken.status === 'CALLED' && (
+                  <div className="p-3.5 rounded-2xl bg-amber-500/15 border border-amber-500/40 text-amber-200 flex items-center justify-between gap-3 text-xs">
+                    <div className="flex items-center gap-2">
+                      <Volume2 className="w-4 h-4 text-amber-400 animate-bounce" />
+                      <span className="font-bold">
+                        Awaiting citizen response. {responseTimerSeconds === 0 ? 'Window expired — Smart Skip or Recall recommended.' : `Response window active (${responseTimerSeconds}s).`}
+                      </span>
+                    </div>
+                    {responseTimerSeconds === 0 && (
+                      <span className="px-2 py-0.5 rounded-full bg-amber-500 text-slate-950 font-bold text-[10px] uppercase">
+                        Window Expired
+                      </span>
+                    )}
+                  </div>
+                )}
+
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div className="space-y-1">
                     <span className="text-4xl sm:text-6xl font-black tracking-tight text-white">
@@ -200,37 +295,78 @@ export const StaffDashboard: React.FC = () => {
 
                 {/* Primary Action Buttons */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2">
-                  <button
-                    onClick={handleComplete}
-                    className="py-3 px-4 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs flex items-center justify-center gap-1.5 transition-transform active:scale-95 cursor-pointer shadow-lg shadow-emerald-500/25"
-                  >
-                    <CheckCircle2 className="w-4 h-4" />
-                    <span>Complete Turn</span>
-                  </button>
+                  
+                  {currentActiveToken.status === 'CALLED' ? (
+                    <>
+                      <button
+                        onClick={handleStartService}
+                        className="py-3 px-4 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs flex items-center justify-center gap-1.5 transition-transform active:scale-95 cursor-pointer shadow-lg shadow-emerald-500/25"
+                      >
+                        <UserCheck className="w-4 h-4" />
+                        <span>Start Consultation</span>
+                      </button>
 
-                  <button
-                    onClick={handleRepeatChime}
-                    className="py-3 px-4 rounded-2xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer border border-slate-700"
-                  >
-                    <Volume2 className="w-4 h-4 text-sky-400" />
-                    <span>Repeat Chime</span>
-                  </button>
+                      <button
+                        onClick={handleSmartSkip}
+                        className="py-3 px-4 rounded-2xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs flex items-center justify-center gap-1.5 transition-transform active:scale-95 cursor-pointer shadow-lg shadow-amber-500/25"
+                        title="Move to temporary hold without canceling and call next waiting citizen"
+                      >
+                        <FastForward className="w-4 h-4" />
+                        <span>Smart Skip & Next</span>
+                      </button>
 
-                  <button
-                    onClick={() => holdToken(currentActiveToken.id)}
-                    className="py-3 px-4 rounded-2xl bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer border border-slate-700"
-                  >
-                    <PauseCircle className="w-4 h-4" />
-                    <span>5-Min Hold</span>
-                  </button>
+                      <button
+                        onClick={handleRepeatChime}
+                        className="py-3 px-4 rounded-2xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer border border-slate-700"
+                      >
+                        <Volume2 className="w-4 h-4 text-sky-400" />
+                        <span>Repeat Chime</span>
+                      </button>
 
-                  <button
-                    onClick={() => setTransferModalToken(currentActiveToken)}
-                    className="py-3 px-4 rounded-2xl bg-slate-800 hover:bg-slate-700 text-indigo-300 font-bold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer border border-slate-700"
-                  >
-                    <ArrowRightLeft className="w-4 h-4" />
-                    <span>Transfer Token</span>
-                  </button>
+                      <button
+                        onClick={() => holdToken(currentActiveToken.id)}
+                        className="py-3 px-4 rounded-2xl bg-slate-800 hover:bg-slate-700 text-indigo-300 font-bold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer border border-slate-700"
+                      >
+                        <PauseCircle className="w-4 h-4" />
+                        <span>Place on Hold</span>
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        onClick={handleComplete}
+                        className="py-3 px-4 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs flex items-center justify-center gap-1.5 transition-transform active:scale-95 cursor-pointer shadow-lg shadow-emerald-500/25"
+                      >
+                        <CheckCircle2 className="w-4 h-4" />
+                        <span>Complete Turn</span>
+                      </button>
+
+                      <button
+                        onClick={() => setTransferModalToken(currentActiveToken)}
+                        className="py-3 px-4 rounded-2xl bg-slate-800 hover:bg-slate-700 text-indigo-300 font-bold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer border border-slate-700"
+                      >
+                        <ArrowRightLeft className="w-4 h-4" />
+                        <span>Transfer Token</span>
+                      </button>
+
+                      <button
+                        onClick={() => holdToken(currentActiveToken.id)}
+                        className="py-3 px-4 rounded-2xl bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer border border-slate-700"
+                      >
+                        <PauseCircle className="w-4 h-4" />
+                        <span>Place on Hold</span>
+                      </button>
+
+                      <button
+                        onClick={() => markNoShow(currentActiveToken.id)}
+                        className="py-3 px-4 rounded-2xl bg-slate-800 hover:bg-slate-700 text-rose-300 font-bold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer border border-slate-700"
+                      >
+                        <XCircle className="w-4 h-4" />
+                        <span>Mark No-Show</span>
+                      </button>
+                    </>
+                  )}
+
                 </div>
               </div>
             ) : (
@@ -245,14 +381,26 @@ export const StaffDashboard: React.FC = () => {
                   </p>
                 </div>
 
-                <button
-                  onClick={handleCallNext}
-                  disabled={waitingTokens.length === 0}
-                  className="py-4 px-8 rounded-2xl bg-gradient-to-r from-sky-400 via-indigo-500 to-sky-400 hover:from-sky-300 hover:to-indigo-400 text-slate-950 font-black text-sm transition-transform active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed shadow-xl shadow-indigo-500/30 cursor-pointer inline-flex items-center gap-2"
-                >
-                  <PhoneCall className="w-4 h-4 fill-current" />
-                  <span>Call Next Token in Queue</span>
-                </button>
+                <div className="flex flex-wrap items-center justify-center gap-3">
+                  <button
+                    onClick={handleCallNext}
+                    disabled={waitingTokens.length === 0}
+                    className="py-4 px-8 rounded-2xl bg-gradient-to-r from-sky-400 via-indigo-500 to-sky-400 hover:from-sky-300 hover:to-indigo-400 text-slate-950 font-black text-sm transition-transform active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed shadow-xl shadow-indigo-500/30 cursor-pointer inline-flex items-center gap-2"
+                  >
+                    <PhoneCall className="w-4 h-4 fill-current" />
+                    <span>Call Next Token in Queue</span>
+                  </button>
+
+                  {heldTokens.length > 0 && (
+                    <button
+                      onClick={handleSmartSkip}
+                      className="py-4 px-6 rounded-2xl bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold text-xs transition-colors border border-slate-700 inline-flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <FastForward className="w-4 h-4" />
+                      <span>Smart Triage Next</span>
+                    </button>
+                  )}
+                </div>
               </div>
             )}
 
@@ -342,41 +490,65 @@ export const StaffDashboard: React.FC = () => {
         {/* Right 1 Col: Held Tokens & Operations Stats */}
         <div className="space-y-6">
           
-          {/* Held Tokens Card */}
+          {/* Held / Skipped Tokens Card */}
           <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-200 dark:border-slate-800 shadow-xl space-y-4">
             <div className="flex items-center justify-between">
-              <h3 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-wider">
-                Held / Grace Tokens ({heldTokens.length})
-              </h3>
+              <div>
+                <h3 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-wider">
+                  Held & Re-Queue List ({heldTokens.length})
+                </h3>
+                <p className="text-[10px] text-slate-400">
+                  Temporarily skipped or paused tokens
+                </p>
+              </div>
               <PauseCircle className="w-4 h-4 text-amber-500" />
             </div>
 
             {heldTokens.length === 0 ? (
-              <p className="text-xs text-slate-400 py-3 text-center">No tokens on hold.</p>
+              <p className="text-xs text-slate-400 py-3 text-center">No tokens currently on hold or re-queue list.</p>
             ) : (
-              <div className="space-y-2">
+              <div className="space-y-2.5">
                 {heldTokens.map(token => (
                   <div
                     key={token.id}
-                    className="p-3 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 flex items-center justify-between"
+                    className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 space-y-2"
                   >
-                    <div>
-                      <span className="font-black text-xs font-mono text-amber-900 dark:text-amber-200">
-                        {token.tokenNumber}
-                      </span>
-                      <p className="text-[10px] text-amber-700 dark:text-amber-300">
-                        {token.citizenName} • {token.serviceName}
-                      </p>
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-black text-xs font-mono text-amber-900 dark:text-amber-200">
+                            {token.tokenNumber}
+                          </span>
+                          {token.isTemporarilySkipped && (
+                            <span className="px-1.5 py-0.2 rounded bg-amber-200 dark:bg-amber-900 text-amber-800 dark:text-amber-200 text-[9px] font-bold">
+                              Skipped #{token.skipCount || 1}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[10px] text-amber-700 dark:text-amber-300">
+                          {token.citizenName} • {token.serviceName}
+                        </p>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-1.5">
+
+                    <div className="flex items-center justify-end gap-1.5 pt-1 border-t border-amber-200/60 dark:border-amber-900/40">
                       <button
-                        onClick={() => {
-                          callNext(selectedCounter.id);
-                        }}
-                        className="px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-[11px] transition-colors"
+                        onClick={() => callNext(selectedCounter.id)}
+                        className="px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-[11px] transition-colors cursor-pointer"
+                        title="Recall directly to this counter"
                       >
-                        Recall
+                        Recall Now
                       </button>
+
+                      <button
+                        onClick={() => requeueToken(token.id)}
+                        className="px-2.5 py-1 rounded-lg bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-bold text-[11px] transition-colors cursor-pointer flex items-center gap-1"
+                        title="Return token to active waiting line at back of queue"
+                      >
+                        <RotateCcw className="w-3 h-3" />
+                        <span>Re-Queue</span>
+                      </button>
+
                       <button
                         onClick={() => markNoShow(token.id)}
                         className="p-1 rounded-lg text-rose-500 hover:bg-rose-100 dark:hover:bg-rose-950 transition-colors"
@@ -405,9 +577,9 @@ export const StaffDashboard: React.FC = () => {
                 </p>
               </div>
               <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700">
-                <span className="text-[10px] text-slate-400 uppercase font-bold">Avg Service</span>
+                <span className="text-[10px] text-slate-400 uppercase font-bold">Smart Skips</span>
                 <p className="text-xl font-black text-indigo-600 dark:text-indigo-400 mt-0.5">
-                  4.2m
+                  {heldTokens.filter(t => t.isTemporarilySkipped).length}
                 </p>
               </div>
             </div>
@@ -469,7 +641,7 @@ export const StaffDashboard: React.FC = () => {
             <div className="flex items-center justify-end gap-2 pt-2">
               <button
                 onClick={() => setTransferModalToken(null)}
-                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
               >
                 Cancel
               </button>
