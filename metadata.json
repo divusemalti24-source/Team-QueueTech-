@@ -1,0 +1,6 @@
+{
+  "name": "QueueLess",
+  "description": "An intelligent queue orchestration platform for public-service delivery featuring multi-station chained care passes, dynamic flex surge load balancing, entrance QR check-in pods, universal paper kiosks, and queue intelligence simulation.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
